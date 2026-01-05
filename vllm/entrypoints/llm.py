@@ -301,6 +301,29 @@ class LLM:
         logger.info(f"Tensor parallel size: {tensor_parallel_size}")
         logger.info(f"Data type: {dtype}")
         logger.info(f"Quantization: {quantization}")
+        
+        # Log HuggingFace cache paths and model source
+        import os
+        from pathlib import Path
+        hf_cache = os.path.expanduser("~/.cache/huggingface/hub")
+        logger.info(f"HuggingFace cache directory: {hf_cache}")
+        if os.path.exists(hf_cache):
+            logger.info(f"Cache directory exists at: {hf_cache}")
+        else:
+            logger.info(f"Cache directory will be created at: {hf_cache}")
+        
+        # Check if model is local path or HuggingFace model ID
+        if os.path.exists(model) or os.path.isdir(model):
+            logger.info(f"Model source: Local path - {model}")
+        else:
+            logger.info(f"Model source: HuggingFace Hub - {model}")
+            logger.info(f"Model will be downloaded from: https://huggingface.co/{model}")
+            # Check if model is already cached
+            model_cache_path = Path(hf_cache) / f"models--{model.replace('/', '--')}"
+            if model_cache_path.exists():
+                logger.info(f"Model is already cached at: {model_cache_path}")
+            else:
+                logger.info(f"Model NOT cached, will download to: {model_cache_path}")
 
         logger.info("Loading engine arguments...")
         logger.info("Engine arguments loaded successfully.")

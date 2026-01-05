@@ -3704,6 +3704,10 @@ class GPUModelRunner(
             self.model_config.model,
             scope="global",
         )
+        logger.info("=== GPU Model Runner: load_model() called ===")
+        logger.info("Step 1: Model will be loaded from disk (cache or download)")
+        logger.info("Step 2: Model weights will be transferred from CPU to GPU")
+        logger.info("Device: %s", self.device)
         global_expert_loads, old_global_expert_indices_per_model, rank_mapping = (
             EplbState.get_eep_state(self.parallel_config)
             if eep_scale_up
@@ -3717,17 +3721,26 @@ class GPUModelRunner(
         try:
             with DeviceMemoryProfiler() as m:
                 time_before_load = time.perf_counter()
+                logger.info("=== Loading model from disk (HuggingFace cache) ===")
                 model_loader = get_model_loader(self.load_config)
+                logger.info("Model loader initialized: %s", type(model_loader).__name__)
+                logger.info("Loading model weights from disk to CPU memory...")
                 self.model = model_loader.load_model(
                     vllm_config=self.vllm_config, model_config=self.model_config
                 )
+                logger.info("=== Model weights loaded, now transferring to GPU ===")
+                logger.info("GPU device: %s", self.device)
+                logger.info("Model dtype: %s", self.model_config.dtype)
                 if self.lora_config:
+                    logger.info("Loading LoRA adapters...")
                     self.model = self.load_lora_model(
                         self.model, self.vllm_config, self.device
                     )
+                    logger.info("LoRA adapters loaded successfully")
                 if hasattr(self, "drafter"):
                     logger.info_once("Loading drafter model...")
                     self.drafter.load_model(self.model)
+                    logger.info_once("Drafter model loaded successfully")
                     if (
                         hasattr(self.drafter, "model")
                         and is_mixture_of_experts(self.drafter.model)
@@ -3782,9 +3795,11 @@ class GPUModelRunner(
                     else:
                         aux_layers = self.model.get_eagle3_aux_hidden_state_layers()
 
-                    self.model.set_aux_hidden_state_layers(aux_layers)
-                time_after_load = time.perf_counter()
-            self.model_memory_usage = m.consumed_memory
+                    self.model.set_aux_hidden_state_layers(aux_layers)            time_after_load = time.perf_counter()
+            logger.info("=== Model loading completed ===")
+            logger.info("Time taken: %.4f seconds", time_after_load - time_before_load)
+            logger.info("GPU memory used: %.4f GiB", m.consumed_memory / GiB_bytes)
+        self.model_memory_usage = m.consumed_memory
         except torch.cuda.OutOfMemoryError as e:
             msg = (
                 "Failed to load model - not enough GPU memory. "

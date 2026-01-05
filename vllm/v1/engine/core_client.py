@@ -278,6 +278,9 @@ class InprocClient(EngineCoreClient):
     def __init__(self, *args, **kwargs):
         logger.info("=== InprocClient.__init__ called ===")
         logger.info("Initializing EngineCore (model loading happens here)...")
+        logger.info("Step 1: Model will be downloaded from HuggingFace (if not cached)")
+        logger.info("Step 2: Model weights will be loaded from disk to CPU memory")
+        logger.info("Step 3: Model weights will be transferred from CPU to GPU memory")
         self.engine_core = EngineCore(*args, **kwargs)
         logger.info("=== EngineCore initialized (model loaded) ===")
 

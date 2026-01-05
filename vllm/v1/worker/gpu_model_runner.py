@@ -3795,11 +3795,12 @@ class GPUModelRunner(
                     else:
                         aux_layers = self.model.get_eagle3_aux_hidden_state_layers()
 
-                    self.model.set_aux_hidden_state_layers(aux_layers)            time_after_load = time.perf_counter()
+                    self.model.set_aux_hidden_state_layers(aux_layers)            
+                time_after_load = time.perf_counter()
             logger.info("=== Model loading completed ===")
             logger.info("Time taken: %.4f seconds", time_after_load - time_before_load)
             logger.info("GPU memory used: %.4f GiB", m.consumed_memory / GiB_bytes)
-        self.model_memory_usage = m.consumed_memory
+            self.model_memory_usage = m.consumed_memory
         except torch.cuda.OutOfMemoryError as e:
             msg = (
                 "Failed to load model - not enough GPU memory. "

@@ -78,6 +78,13 @@ class EngineCoreClient(ABC):
         executor_class: type[Executor],
         log_stats: bool,
     ) -> "EngineCoreClient":
+        logger.info("=== EngineCoreClient.make_client called ===")
+        logger.info(f"Multiprocess mode: {multiprocess_mode}")
+        logger.info(f"Asyncio mode: {asyncio_mode}")
+        logger.info(f"Executor class: {executor_class.__name__}")
+        logger.info(f"Model: {vllm_config.model_config.model}")
+        logger.info(f"Parallel config: {vllm_config.parallel_config}")
+        
         # TODO: support this for debugging purposes.
         if asyncio_mode and not multiprocess_mode:
             raise NotImplementedError(
@@ -86,13 +93,16 @@ class EngineCoreClient(ABC):
             )
 
         if multiprocess_mode and asyncio_mode:
+            logger.info("Creating AsyncMPClient (model will be loaded in background process)...")
             return EngineCoreClient.make_async_mp_client(
                 vllm_config, executor_class, log_stats
             )
 
         if multiprocess_mode and not asyncio_mode:
+            logger.info("Creating SyncMPClient (model will be loaded in background process)...")
             return SyncMPClient(vllm_config, executor_class, log_stats)
 
+        logger.info("Creating InprocClient (model will be loaded in current process)...")
         return InprocClient(vllm_config, executor_class, log_stats)
 
     @staticmethod

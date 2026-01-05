@@ -296,6 +296,17 @@ class LLM:
                 "'examples/offline_inference/data_parallel.py'."
             )
 
+        logger.info("Initializing LLM class...")
+        logger.info(f"Model path: {model}")
+        logger.info(f"Tensor parallel size: {tensor_parallel_size}")
+        logger.info(f"Data type: {dtype}")
+        logger.info(f"Quantization: {quantization}")
+
+        logger.info("Loading engine arguments...")
+        self.engine_args = engine_args
+        logger.info("Engine arguments loaded successfully.")
+
+        logger.info("Creating EngineArgs object...")
         engine_args = EngineArgs(
             model=model,
             runner=runner,
@@ -329,24 +340,30 @@ class LLM:
             logits_processors=logits_processors,
             **kwargs,
         )
+        logger.info("EngineArgs object created successfully.")
 
         log_non_default_args(engine_args)
+        logger.info("=== Starting LLMEngine initialization ===")
 
         self.llm_engine = LLMEngine.from_engine_args(
             engine_args=engine_args, usage_context=UsageContext.LLM_CLASS
         )
+        logger.info("=== LLMEngine initialization completed ===")
         self.engine_class = type(self.llm_engine)
 
+        logger.info("Initializing request counter and default sampling params...")
         self.request_counter = Counter()
         self.default_sampling_params: dict[str, Any] | None = None
 
         supported_tasks = self.llm_engine.get_supported_tasks()
-        logger.info("Supported tasks: %s", supported_tasks)
+        logger.info(f"Supported tasks: {supported_tasks}")
         self.supported_tasks = supported_tasks
 
+        logger.info("Setting up model config, input processor, and IO processor...")
         self.model_config = self.llm_engine.model_config
         self.input_processor = self.llm_engine.input_processor
         self.io_processor = self.llm_engine.io_processor
+        logger.info("=== LLM class initialization completed ===")
 
     def get_tokenizer(self) -> TokenizerLike:
         return self.llm_engine.get_tokenizer()

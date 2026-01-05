@@ -58,10 +58,13 @@ class LLMEngine:
         use_cached_outputs: bool = False,
         multiprocess_mode: bool = False,
     ) -> None:
+        logger.info("Initializing LLMEngine...")
         self.vllm_config = vllm_config
+        logger.info("Loaded vllm_config.")
         self.observability_config = vllm_config.observability_config
         self.model_config = vllm_config.model_config
         self.cache_config = vllm_config.cache_config
+        logger.info("Loaded observability, model, and cache configurations.")
 
         self.log_stats = log_stats
 
@@ -73,38 +76,56 @@ class LLMEngine:
         )
         # important: init dp group before init the engine_core
         # In the decoupled engine case this is handled in EngineCoreProc.
+        logger.info("Parallel configuration checked.")
         if (
             not multiprocess_mode
             and parallel_config.data_parallel_size > 1
             and not self.external_launcher_dp
         ):
+            logger.info("Initializing data parallel group...")
             self.dp_group = parallel_config.stateless_init_dp_group()
         else:
             self.dp_group = None
+        logger.info("Data parallel group initialized.")
+
         self.should_execute_dummy_batch = False
 
         if self.model_config.skip_tokenizer_init:
+            logger.info("Skipping tokenizer initialization...")
             tokenizer = None
         else:
+            logger.info("Initializing tokenizer...")
             tokenizer = cached_tokenizer_from_config(self.model_config)
+            logger.info("Tokenizer initialized.")
 
+        logger.info("Initializing input processor...")
         self.input_processor = InputProcessor(self.vllm_config, tokenizer)
+        logger.info("Input processor initialized.")
+
+        logger.info("Initializing IO processor...")
         self.io_processor = get_io_processor(
             self.vllm_config,
             self.model_config.io_processor_plugin,
         )
+        logger.info("IO processor initialized.")
 
+        logger.info("Initializing OutputProcessor...")
         # OutputProcessor (convert EngineCoreOutputs --> RequestOutput).
         self.output_processor = OutputProcessor(
             self.tokenizer,
             log_stats=self.log_stats,
             stream_interval=self.vllm_config.scheduler_config.stream_interval,
         )
+        logger.info("OutputProcessor initialized.")
+
         endpoint = self.observability_config.otlp_traces_endpoint
         if endpoint is not None:
+            logger.info("Initializing tracer...")
             tracer = init_tracer("vllm.llm_engine", endpoint)
             self.output_processor.tracer = tracer
+            logger.info("Tracer initialized.")
 
+        logger.info("Creating EngineCoreClient...")
         # EngineCore (gets EngineCoreRequests and gives EngineCoreOutputs)
         self.engine_core = EngineCoreClient.make_client(
             multiprocess_mode=multiprocess_mode,
@@ -113,9 +134,11 @@ class LLMEngine:
             executor_class=executor_class,
             log_stats=self.log_stats,
         )
+        logger.info("EngineCoreClient created successfully.")
 
         self.logger_manager: StatLoggerManager | None = None
         if self.log_stats:
+            logger.info("Initializing StatLoggerManager...")
             self.logger_manager = StatLoggerManager(
                 vllm_config=vllm_config,
                 custom_stat_loggers=stat_loggers,
@@ -123,18 +146,23 @@ class LLMEngine:
                 aggregate_engine_logging=aggregate_engine_logging,
             )
             self.logger_manager.log_engine_initialized()
+            logger.info("StatLoggerManager initialized.")
 
         if not multiprocess_mode:
+            logger.info("Setting model_executor for single-process mode...")
             # for v0 compatibility
             self.model_executor = self.engine_core.engine_core.model_executor  # type: ignore
 
         if self.external_launcher_dp:
+            logger.info("Reusing existing DP group for external launcher mode...")
             # If we use DP in external launcher mode, we reuse the
             # existing DP group used for data communication.
             self.dp_group = get_dp_group().cpu_group
 
+        logger.info("Resetting multimodal cache...")
         # Don't keep the dummy data in memory
         self.reset_mm_cache()
+        logger.info("LLMEngine initialization complete.")
 
     @classmethod
     def from_vllm_config(
@@ -163,15 +191,21 @@ class LLMEngine:
     ) -> "LLMEngine":
         """Creates an LLM engine from the engine arguments."""
 
-        # Create the engine configs.
+        logger.info("=== Starting LLMEngine.from_engine_args ===")
+        logger.info("Creating engine configuration from EngineArgs...")
         vllm_config = engine_args.create_engine_config(usage_context)
+        logger.info("Engine configuration created successfully.")
+        logger.info(f"Model config: {vllm_config.model_config}")
+        
+        logger.info("Resolving Executor class...")
         executor_class = Executor.get_class(vllm_config)
+        logger.info(f"Executor class resolved: {executor_class.__name__}")
 
         if envs.VLLM_ENABLE_V1_MULTIPROCESSING:
-            logger.debug("Enabling multiprocessing for LLMEngine.")
+            logger.info("Enabling multiprocessing for LLMEngine.")
             enable_multiprocessing = True
 
-        # Create the LLMEngine.
+        logger.info("Creating LLMEngine instance...")
         return cls(
             vllm_config=vllm_config,
             executor_class=executor_class,

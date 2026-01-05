@@ -303,7 +303,6 @@ class LLM:
         logger.info(f"Quantization: {quantization}")
 
         logger.info("Loading engine arguments...")
-        self.engine_args = engine_args
         logger.info("Engine arguments loaded successfully.")
 
         logger.info("Creating EngineArgs object...")

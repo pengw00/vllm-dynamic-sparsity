@@ -276,7 +276,10 @@ class InprocClient(EngineCoreClient):
     """
 
     def __init__(self, *args, **kwargs):
+        logger.info("=== InprocClient.__init__ called ===")
+        logger.info("Initializing EngineCore (model loading happens here)...")
         self.engine_core = EngineCore(*args, **kwargs)
+        logger.info("=== EngineCore initialized (model loaded) ===")
 
     def get_output(self) -> EngineCoreOutputs:
         outputs, model_executed = self.engine_core.step_fn()

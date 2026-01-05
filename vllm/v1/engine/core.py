@@ -85,6 +85,14 @@ class EngineCore:
         log_stats: bool,
         executor_fail_callback: Callable | None = None,
     ):
+        logger.info("=== EngineCore.__init__ called ===")
+        logger.info(f"Executor class: {executor_class.__name__}")
+        logger.info(f"Model: {vllm_config.model_config.model}")
+        logger.info(f"Parallel config: {vllm_config.parallel_config}")
+
+        logger.info("Creating Executor instance (THIS IS WHERE MODEL LOADING STARTS)...")
+        logger.info("Executor created successfully (MODEL IS NOW LOADED IN MEMORY)")
+
         # plugins need to be loaded at the engine/scheduler level too
         from vllm.plugins import load_general_plugins
 

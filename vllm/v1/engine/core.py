@@ -360,27 +360,60 @@ class EngineCore:
         Returns tuple of outputs and a flag indicating whether the model
         was executed.
         """
+        logger.info("="*80)
+        logger.info("🔥 [EngineCore.step] 开始推理步骤")
+        logger.info("="*80)
 
         # Check for any requests remaining in the scheduler - unfinished,
         # or finished and not yet removed from the batch.
         if not self.scheduler.has_requests():
+            logger.info("⚠️  没有待处理的请求，跳过")
             return {}, False
+        
+        # ========== 阶段 1: 调度 ==========
+        logger.info("\n📋 [阶段 1/4] 调度请求")
+        logger.info("   → 调用 scheduler.schedule()")
         scheduler_output = self.scheduler.schedule()
+        logger.info("   → 调度完成:")
+        logger.info("     • 调度的 tokens 数: %d", scheduler_output.total_num_scheduled_tokens)
+        logger.info("     • 调度的请求数: %d", len(scheduler_output.scheduled_requests) if hasattr(scheduler_output, 'scheduled_requests') else 0)
+        
+        # ========== 阶段 2: 执行模型 ==========
+        logger.info("\n🔥 [阶段 2/4] 执行模型")
+        logger.info("   → 调用 model_executor.execute_model()")
+        logger.info("   → 这会调用 Transformer 的 forward 传播")
         future = self.model_executor.execute_model(scheduler_output, non_block=True)
         grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)
+        
         with self.log_error_detail(scheduler_output):
+            logger.info("   → 等待模型执行完成 (future.result())")
             model_output = future.result()
+            logger.info("   → 模型执行完成")
+            
             if model_output is None:
+                logger.info("   → model_output 为 None，调用 sample_tokens()")
                 model_output = self.model_executor.sample_tokens(grammar_output)
 
-        # Before processing the model output, process any aborts that happened
-        # during the model execution.
+        # ========== 阶段 3: 处理中止请求 ==========
+        logger.info("\n🗑️  [阶段 3/4] 处理中止请求")
         self._process_aborts_queue()
+        
+        # ========== 阶段 4: 更新调度器 ==========
+        logger.info("\n📊 [阶段 4/4] 更新调度器并生成输出")
+        logger.info("   → 调用 scheduler.update_from_output()")
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, model_output
         )
+        
+        model_executed = scheduler_output.total_num_scheduled_tokens > 0
+        logger.info("   → 输出生成完成")
+        logger.info("     • 模型是否执行: %s", model_executed)
+        logger.info("     • 输出数量: %d", len(engine_core_outputs) if engine_core_outputs else 0)
+        
+        logger.info("\n✅ [EngineCore.step] 推理步骤完成")
+        logger.info("="*80)
 
-        return engine_core_outputs, scheduler_output.total_num_scheduled_tokens > 0
+        return engine_core_outputs, model_executed
 
     def post_step(self, model_executed: bool) -> None:
         # When using async scheduling we can't get draft token ids in advance,

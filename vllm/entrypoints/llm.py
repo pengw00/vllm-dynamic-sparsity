@@ -1788,7 +1788,7 @@ class LLM:
                 dynamic_ncols=True,
                 postfix=(f"est. speed input: {0:.2f} toks/s, output: {0:.2f} toks/s"),
             )
-
+        logging.info("开始推理...")
         # Run the engine.
         outputs: list[RequestOutput | PoolingRequestOutput] = []
         total_in_toks = 0

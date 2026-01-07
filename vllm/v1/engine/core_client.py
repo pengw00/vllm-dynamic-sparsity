@@ -276,16 +276,33 @@ class InprocClient(EngineCoreClient):
     """
 
     def __init__(self, *args, **kwargs):
-        logger.info("=== InprocClient.__init__ called ===")
-        logger.info("Initializing EngineCore (model loading happens here)...")
-        logger.info("Step 1: Model will be downloaded from HuggingFace (if not cached)")
-        logger.info("Step 2: Model weights will be loaded from disk to CPU memory")
-        logger.info("Step 3: Model weights will be transferred from CPU to GPU memory")
+        logger.info("="*80)
+        logger.info("🔹 [InprocClient.__init__] 创建 InprocClient")
+        logger.info("="*80)
+        logger.info("特点：")
+        logger.info("  • 在当前进程中运行 EngineCore")
+        logger.info("  • 同步调用，没有多进程")
+        logger.info("  • 模型加载在当前进程中")
+        logger.info("\n开始初始化 EngineCore...")
+        logger.info("  Step 1: 下载模型（如果需要）")
+        logger.info("  Step 2: 加载模型权重到 CPU 内存")
+        logger.info("  Step 3: 传输权重到 GPU 显存")
         self.engine_core = EngineCore(*args, **kwargs)
-        logger.info("=== EngineCore initialized (model loaded) ===")
+        logger.info("✅ EngineCore 初始化完成（模型已加载）")
+        logger.info("="*80)
 
     def get_output(self) -> EngineCoreOutputs:
+        logger.info("🔸 [InprocClient.get_output] 调用 EngineCore.step_fn()")
+        logger.info("   → 这会执行真正的模型推理")
+        
         outputs, model_executed = self.engine_core.step_fn()
+        
+        logger.info("   → model_executed: %s", model_executed)
+        if outputs:
+            logger.info("   → 得到 outputs (有数据)")
+        else:
+            logger.info("   → 没有 outputs (可能在等待请求)")
+        
         self.engine_core.post_step(model_executed=model_executed)
         return outputs and outputs.get(0) or EngineCoreOutputs()
 

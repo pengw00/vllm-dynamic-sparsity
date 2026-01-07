@@ -321,10 +321,23 @@ class LLMEngine:
             self.should_execute_dummy_batch = False
             self.engine_core.execute_dummy_batch()
             return []
-
+        
+        # 🔍 DEBUG: Step 开始
+        logger.info("="*80)
+        logger.info("🔹 [LLMEngine.step] 开始新的推理 step")
+        logger.info("="*80)
+        
         # 1) Get EngineCoreOutput from the EngineCore.
+        logger.info("📥 [Step 1] 从 EngineCore 获取输出...")
+        logger.info("   → 调用 self.engine_core.get_output()")
+        logger.info("   → engine_core 类型: %s", type(self.engine_core).__name__)
+        
         with record_function_or_nullcontext("llm_engine step: get_output"):
             outputs = self.engine_core.get_output()
+        
+        logger.info("✅ [Step 1] 获取到 outputs, 类型: %s", type(outputs).__name__)
+        if hasattr(outputs, 'outputs'):
+            logger.info("   → outputs.outputs 长度: %d", len(outputs.outputs))
 
         # 2) Process EngineCoreOutputs.
         with record_function_or_nullcontext("llm_engine step: process_outputs"):

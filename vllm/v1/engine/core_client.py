@@ -682,12 +682,37 @@ class SyncMPClient(MPClient):
     def __init__(
         self, vllm_config: VllmConfig, executor_class: type[Executor], log_stats: bool
     ):
+        logger.info("="*80)
+        logger.info("🔷 [SyncMPClient.__init__] 初始化同步多进程客户端")
+        logger.info("="*80)
+        logger.info("📊 参数:")
+        logger.info("   → executor_class: %s", executor_class.__name__)
+        logger.info("   → executor_class 完整路径: %s", executor_class.__module__ + "." + executor_class.__name__)
+        logger.info("   → log_stats: %s", log_stats)
+        logger.info("   → model: %s", vllm_config.model_config.model)
+        logger.info("   → data_parallel_size: %d", vllm_config.parallel_config.data_parallel_size)
+        logger.info("\n🚀 准备启动后台进程 (EngineCoreProc)")
+        logger.info("   → 这会创建独立的 Python 进程")
+        logger.info("   → 模型将在后台进程中加载")
+        logger.info("   → 调用 super().__init__() 会触发:")
+        logger.info("     1. launch_core_engines()")
+        logger.info("     2. EngineCoreProc.run_engine_core()")
+        logger.info("     3. 后台进程加载模型")
+        logger.info("="*80)
+        
         super().__init__(
             asyncio_mode=False,
             vllm_config=vllm_config,
             executor_class=executor_class,
             log_stats=log_stats,
         )
+        
+        logger.info("="*80)
+        logger.info("✅ [SyncMPClient.__init__] 后台进程已启动")
+        logger.info("   → ZMQ Sockets 已连接")
+        logger.info("   → Output Queue Thread 已启动")
+        logger.info("   → 后台进程正在 busy loop 中运行")
+        logger.info("="*80)
 
         self.is_dp = self.vllm_config.parallel_config.data_parallel_size > 1
         self.outputs_queue = queue.Queue[EngineCoreOutputs | Exception]()

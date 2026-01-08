@@ -85,13 +85,66 @@ class EngineCore:
         log_stats: bool,
         executor_fail_callback: Callable | None = None,
     ):
+        # ====== Colab 优化的日志配置 ======
+        import logging
+        import sys
+        import os
+        
+        # 获取当前进程 ID
+        pid = os.getpid()
+        
+        # 在 Colab 中，直接输出到 stdout 即可（会自动显示）
+        # 但同时也保存到文件以便后续分析
+        log_dir = "vllm_logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"engine_core_{pid}.log")
+        
+        # 配置 formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - [PID:%(process)d] [%(name)s] - %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        
+        # 获取 root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        
+        # 清除现有 handlers（避免重复）
+        root_logger.handlers.clear()
+        
+        # 1. Console handler（Colab 会显示）
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
+        
+        # 2. File handler（保存到文件）
+        file_handler = logging.FileHandler(log_file, mode='a')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+        
+        # 强制 unbuffered 输出（Colab 重要！）
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+        
+        logger.info("="*80)
+        logger.info("🚀 [EngineCore Backend Process] 后台进程启动")
+        logger.info("="*80)
+        logger.info("📝 日志配置:")
+        logger.info("   → 进程 PID: %d", pid)
+        logger.info("   → 父进程 PID: %d", os.getppid())
+        logger.info("   → 控制台: stdout (Colab 可见)")
+        logger.info("   → 文件: %s", log_file)
+        logger.info("="*80)
         logger.info("=== EngineCore.__init__ called ===")
         logger.info(f"Executor class: {executor_class.__name__}")
         logger.info(f"Model: {vllm_config.model_config.model}")
         logger.info(f"Parallel config: {vllm_config.parallel_config}")
 
-        logger.info("Creating Executor instance (THIS IS WHERE MODEL LOADING STARTS)...")
-        logger.info("Executor created successfully (MODEL IS NOW LOADED IN MEMORY)")
+        logger.info("\n🔧 Creating Executor instance...")
+        logger.info("   → THIS IS WHERE MODEL LOADING STARTS")
+        logger.info("   → Loading model weights to GPU memory...")
 
         # plugins need to be loaded at the engine/scheduler level too
         from vllm.plugins import load_general_plugins
@@ -229,7 +282,7 @@ class EngineCore:
         self, vllm_config: VllmConfig
     ) -> tuple[int, int, KVCacheConfig]:
         start = time.time()
-
+        logger.info("Initializing KV caches...")
         # Get all kv cache needed by the model
         kv_cache_specs = self.model_executor.get_kv_cache_specs()
 

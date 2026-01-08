@@ -101,3 +101,58 @@ If you use vLLM for your research, please cite our [paper](https://arxiv.org/abs
 ## Media Kit
 
 - If you wish to use vLLM's logo, please refer to [our media kit repo](https://github.com/vllm-project/media-kit)
+
+
+```
+EngineCore.step()
+  ↓
+model_executor.execute_model(scheduler_output, non_block=True)
+  ↓
+═══════════════════════════════════════════════════════════════
+【GPUExecutor.execute_model()】
+文件: vllm/v1/executor/gpu_executor.py
+═══════════════════════════════════════════════════════════════
+  ↓
+self.driver_worker.execute_model(scheduler_output)
+  ↓
+═══════════════════════════════════════════════════════════════
+【GPUWorker.execute_model()】
+文件: vllm/v1/worker/gpu_worker.py
+═══════════════════════════════════════════════════════════════
+  ↓
+self.model_runner.execute_model(scheduler_output)
+  ↓
+═══════════════════════════════════════════════════════════════
+【GPUModelRunner.execute_model()】
+文件: vllm/v1/worker/gpu_model_runner.py
+═══════════════════════════════════════════════════════════════
+  ↓
+self.model(input_ids, positions, kv_caches, attn_metadata)
+  ↓
+═══════════════════════════════════════════════════════════════
+【Qwen2ForCausalLM.forward()】
+文件: vllm/model_executor/models/qwen2.py
+═══════════════════════════════════════════════════════════════
+  ↓
+self.model(input_ids, positions, ...)
+  ↓
+═══════════════════════════════════════════════════════════════
+【Qwen2Model.forward()】← 你已经加了日志的地方
+文件: vllm/model_executor/models/qwen2.py
+═══════════════════════════════════════════════════════════════
+  ↓
+for layer in self.layers:
+    hidden_states = layer(...)
+  ↓
+【28 层 Transformer 计算】
+  ↓
+return hidden_states
+```
+
+```
+EngineCore → model_executor.execute_model()
+GPUExecutor → driver_worker.execute_model()
+GPUWorker → model_runner.execute_model()
+GPUModelRunner → self.model(...) ← 这里调用 Qwen2
+Qwen2Model.forward() → 真正的模型计算
+```

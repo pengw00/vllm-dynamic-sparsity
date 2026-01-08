@@ -380,15 +380,46 @@ class EngineCore:
         
         # ========== 阶段 2: 执行模型 ==========
         logger.info("\n🔥 [阶段 2/4] 执行模型")
-        logger.info("   → 调用 model_executor.execute_model()")
-        logger.info("   → 这会调用 Transformer 的 forward 传播")
+        logger.info("="*60)
+        logger.info("📍 关键调用链:")
+        logger.info("   1️⃣  model_executor.execute_model()")
+        logger.info("       ↓")
+        logger.info("   2️⃣  GPUModelRunner.execute_model()")
+        logger.info("       ↓")
+        logger.info("   3️⃣  self.model(...) - 这是 PyTorch Module.__call__")
+        logger.info("       ↓")
+        logger.info("   4️⃣  Qwen2ForCausalLM.forward()")
+        logger.info("       ↓")
+        logger.info("   5️⃣  Qwen2Model.forward() - Transformer 主循环")
+        logger.info("       ↓")
+        logger.info("   6️⃣  逐层 Transformer Layer forward")
+        logger.info("       ↓")
+        logger.info("   7️⃣  Attention + MLP 计算 (GPU Kernels)")
+        logger.info("="*60)
+        
+        logger.info("\n📞 调用 model_executor.execute_model()...")
+        logger.info("   → model_executor 类型: %s", type(self.model_executor).__name__)
+        logger.info("   → model_executor 类路径: %s", type(self.model_executor).__module__ + "." + type(self.model_executor).__name__)
+        logger.info("   → scheduler_output.total_num_scheduled_tokens: %d", scheduler_output.total_num_scheduled_tokens)
+        logger.info("   → non_block=True (异步执行)")
+        
+        # 打印 model_executor 的关键属性
+        if hasattr(self.model_executor, 'driver_worker'):
+            logger.info("   → driver_worker: %s", type(self.model_executor.driver_worker).__name__)
+        if hasattr(self.model_executor, 'workers'):
+            logger.info("   → workers 数量: %d", len(self.model_executor.workers))
+        
         future = self.model_executor.execute_model(scheduler_output, non_block=True)
+        logger.info("✅ execute_model() 返回 Future 对象")
+        
         grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)
         
         with self.log_error_detail(scheduler_output):
-            logger.info("   → 等待模型执行完成 (future.result())")
+            logger.info("\n⏳ 等待模型执行完成 (future.result())...")
+            logger.info("   → 这会阻塞直到 GPU 计算完成")
             model_output = future.result()
-            logger.info("   → 模型执行完成")
+            logger.info("✅ 模型执行完成！")
+            logger.info("   → model_output 类型: %s", type(model_output).__name__ if model_output else "None")
             
             if model_output is None:
                 logger.info("   → model_output 为 None，调用 sample_tokens()")
@@ -930,48 +961,120 @@ class EngineCoreProc(EngineCore):
     def run_busy_loop(self):
         """Core busy loop of the EngineCore."""
 
+        logger.info("="*80)
+        logger.info("🔁 [EngineCoreProc] Busy Loop 启动")
+        logger.info("="*80)
+        logger.info("📌 这是后台进程的主循环，持续运行直到收到终止信号")
+        logger.info("📌 循环步骤:")
+        logger.info("   1️⃣  _process_input_queue() - 等待并处理 Socket 输入")
+        logger.info("   2️⃣  _process_engine_step()  - 执行模型推理")
+        logger.info("="*80)
+        
+        loop_count = 0
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
+            loop_count += 1
+            logger.info("\n" + "="*80)
+            logger.info("🔁 [Busy Loop] 第 %d 次循环开始", loop_count)
+            logger.info("="*80)
+            
             # 1) Poll the input queue until there is work to do.
+            logger.info("📥 [步骤 1/2] 处理输入队列...")
+            logger.info("   → 这会阻塞等待，直到:")
+            logger.info("     • Socket Thread 放入新请求到 input_queue")
+            logger.info("     • 或 scheduler 中有未完成的请求")
             self._process_input_queue()
+            logger.info("✅ [步骤 1/2] 输入队列处理完成")
+            
             # 2) Step the engine core and return the outputs.
+            logger.info("\n🔥 [步骤 2/2] 执行引擎步骤...")
+            logger.info("   → 调用 _process_engine_step()")
+            logger.info("   → 这会触发 model_executor.execute_model()")
             self._process_engine_step()
+            logger.info("✅ [步骤 2/2] 引擎步骤完成")
+            
+            logger.info("✅ [Busy Loop] 第 %d 次循环结束\n", loop_count)
 
     def _process_input_queue(self):
         """Exits when an engine step needs to be performed."""
 
+        logger.info("📥 [_process_input_queue] 开始处理输入队列")
+        logger.info("   → 检查条件:")
+        logger.info("     • engines_running: %s", self.engines_running)
+        logger.info("     • scheduler.has_requests(): %s", self.scheduler.has_requests())
+        logger.info("     • batch_queue 是否为空: %s", not self.batch_queue if self.batch_queue else "N/A")
+        
         waited = False
+        wait_count = 0
         while (
             not self.engines_running
             and not self.scheduler.has_requests()
             and not self.batch_queue
         ):
             if self.input_queue.empty():
+                wait_count += 1
+                if wait_count == 1:
+                    logger.info("⏳ [_process_input_queue] 输入队列为空，等待新请求...")
+                    logger.info("   → 当前状态: 空闲")
+                    logger.info("   → 等待 Socket Thread 通过 input_queue 传递请求")
+                
                 # Drain aborts queue; all aborts are also processed via input_queue.
                 with self.aborts_queue.mutex:
                     self.aborts_queue.queue.clear()
                 if logger.isEnabledFor(DEBUG):
                     logger.debug("EngineCore waiting for work.")
                     waited = True
-            req = self.input_queue.get()
+            
+            logger.debug("⏳ [_process_input_queue] 从 input_queue 阻塞获取请求...")
+            req = self.input_queue.get()  # 🔑 阻塞调用
+            logger.info("📨 [_process_input_queue] 从 input_queue 获取到请求！")
+            logger.info("   → 请求类型: %s", req[0].name if hasattr(req[0], 'name') else req[0])
+            
             self._handle_client_request(*req)
+            logger.info("✅ [_process_input_queue] 请求处理完成")
 
         if waited:
             logger.debug("EngineCore loop active.")
+            logger.info("🟢 [_process_input_queue] 引擎从空闲状态激活")
 
         # Handle any more client requests.
+        additional_count = 0
         while not self.input_queue.empty():
+            logger.debug("📨 [_process_input_queue] 处理队列中的额外请求...")
             req = self.input_queue.get_nowait()
             self._handle_client_request(*req)
+            additional_count += 1
+        
+        if additional_count > 0:
+            logger.info("✅ [_process_input_queue] 额外处理了 %d 个请求", additional_count)
+        
+        logger.info("✅ [_process_input_queue] 输入队列处理完成，准备执行模型")
 
     def _process_engine_step(self) -> bool:
         """Called only when there are unfinished local requests."""
 
+        logger.info("🔥 [_process_engine_step] 开始执行引擎步骤")
+        logger.info("   → 这是连接 ZMQ 和模型执行的关键函数")
+        logger.info("   → 调用链: _process_engine_step → step_fn → EngineCore.step → model_executor.execute_model")
+        
         # Step the engine core.
+        logger.info("📞 [_process_engine_step] 调用 self.step_fn()")
+        logger.info("   → step_fn 实际是: %s", self.step_fn.__name__)
         outputs, model_executed = self.step_fn()
+        logger.info("✅ [_process_engine_step] step_fn() 执行完成")
+        logger.info("   → 模型是否执行: %s", model_executed)
+        logger.info("   → 输出数量: %d", len(outputs) if outputs else 0)
+        
         # Put EngineCoreOutputs into the output queue.
+        logger.info("📤 [_process_engine_step] 将输出放入 output_queue")
+        output_count = 0
         for output in outputs.items() if outputs else ():
             self.output_queue.put_nowait(output)
+            output_count += 1
+            logger.debug("   → 放入输出 %d: client_index=%d", output_count, output[0])
+        logger.info("✅ [_process_engine_step] 已将 %d 个输出放入队列", output_count)
+        logger.info("   → Output Socket Thread 会从队列取出并通过 ZMQ 发送")
+        
         # Post-step hook.
         self.post_step(model_executed)
 
@@ -980,8 +1083,10 @@ class EngineCoreProc(EngineCore):
         # background threads (like NIXL handshake) to make progress.
         # Without this, the tight polling loop can starve background threads.
         if not model_executed and self.scheduler.has_unfinished_requests():
+            logger.debug("   → 模型未执行但有等待请求，yield GIL")
             time.sleep(0.001)
 
+        logger.info("✅ [_process_engine_step] 引擎步骤完成\n")
         return model_executed
 
     def _handle_client_request(
@@ -989,18 +1094,33 @@ class EngineCoreProc(EngineCore):
     ) -> None:
         """Dispatch request from client."""
 
+        logger.info("🔀 [_handle_client_request] 分发客户端请求")
+        logger.info("   → 请求类型: %s", request_type.name)
+
         if request_type == EngineCoreRequestType.ADD:
             req, request_wave = request
+            logger.info("   → 处理 ADD 请求")
+            logger.info("     • request_id: %s", req.request_id if hasattr(req, 'request_id') else 'N/A')
+            logger.info("     • request_wave: %d", request_wave)
+            logger.info("   → 调用 self.add_request() 添加到 scheduler")
             self.add_request(req, request_wave)
+            logger.info("   ✅ 请求已添加到 scheduler")
         elif request_type == EngineCoreRequestType.ABORT:
+            logger.info("   → 处理 ABORT 请求")
+            logger.info("     • 要中止的请求: %s", request)
             self.abort_requests(request)
+            logger.info("   ✅ 中止请求已处理")
         elif request_type == EngineCoreRequestType.UTILITY:
             client_idx, call_id, method_name, args = request
+            logger.info("   → 处理 UTILITY 请求")
+            logger.info("     • 方法名: %s", method_name)
+            logger.info("     • 客户端索引: %d", client_idx)
             output = UtilityOutput(call_id)
             try:
                 method = getattr(self, method_name)
                 result = method(*self._convert_msgspec_args(method, args))
                 output.result = UtilityResult(result)
+                logger.info("   ✅ UTILITY 方法执行成功")
             except BaseException as e:
                 logger.exception("Invocation of %s method failed", method_name)
                 output.failure_message = (
@@ -1010,6 +1130,7 @@ class EngineCoreProc(EngineCore):
                 (client_idx, EngineCoreOutputs(utility_output=output))
             )
         elif request_type == EngineCoreRequestType.EXECUTOR_FAILED:
+            logger.error("   ✗ EXECUTOR_FAILED - 执行器失败")
             raise RuntimeError("Executor failed.")
         else:
             logger.error(
@@ -1056,11 +1177,20 @@ class EngineCoreProc(EngineCore):
     ):
         """Input socket IO thread."""
 
+        logger.info("="*80)
+        logger.info("🔌 [Socket Thread] 输入 Socket 线程启动")
+        logger.info("="*80)
+        logger.info("📍 输入地址列表: %s", input_addresses)
+        logger.info("📍 协调器输入地址: %s", coord_input_address)
+        logger.info("🆔 引擎标识: %s", identity.hex())
+        
         # Msgpack serialization decoding.
         add_request_decoder = MsgpackDecoder(EngineCoreRequest)
         generic_decoder = MsgpackDecoder()
 
         with ExitStack() as stack, zmq.Context() as ctx:
+            logger.info("🔧 [Socket Thread] 创建 ZMQ Context 和 Socket")
+            
             input_sockets = [
                 stack.enter_context(
                     make_zmq_socket(
@@ -1069,8 +1199,11 @@ class EngineCoreProc(EngineCore):
                 )
                 for input_address in input_addresses
             ]
+            logger.info("✅ [Socket Thread] 创建了 %d 个输入 Socket (DEALER 类型)", len(input_sockets))
+            
             if coord_input_address is None:
                 coord_socket = None
+                logger.info("ℹ️  [Socket Thread] 无协调器 Socket")
             else:
                 coord_socket = stack.enter_context(
                     make_zmq_socket(
@@ -1081,44 +1214,68 @@ class EngineCoreProc(EngineCore):
                         bind=False,
                     )
                 )
+                logger.info("✅ [Socket Thread] 创建协调器 Socket (XSUB 类型)")
                 # Send subscription message to coordinator.
                 coord_socket.send(b"\x01")
+                logger.info("📤 [Socket Thread] 向协调器发送订阅消息")
 
             # Register sockets with poller.
             poller = zmq.Poller()
-            for input_socket in input_sockets:
+            logger.info("🔍 [Socket Thread] 创建 ZMQ Poller (用于多路复用)")
+            
+            for i, input_socket in enumerate(input_sockets):
                 # Send initial message to each input socket - this is required
                 # before the front-end ROUTER socket can send input messages
                 # back to us.
                 input_socket.send(b"")
+                logger.info("📤 [Socket Thread] Socket[%d] 发送初始握手消息", i)
                 poller.register(input_socket, zmq.POLLIN)
+                logger.info("📝 [Socket Thread] Socket[%d] 注册到 Poller", i)
 
             if coord_socket is not None:
+                logger.info("⏳ [Socket Thread] 等待协调器 READY 消息...")
                 # Wait for ready message from coordinator.
                 assert coord_socket.recv() == b"READY"
+                logger.info("✅ [Socket Thread] 收到协调器 READY 消息")
                 poller.register(coord_socket, zmq.POLLIN)
+                logger.info("📝 [Socket Thread] 协调器 Socket 注册到 Poller")
 
             ready_event.set()
+            logger.info("🚀 [Socket Thread] 线程就绪，进入接收循环")
+            logger.info("="*80)
             del ready_event
+            
+            request_count = 0
             while True:
+                logger.debug("⏳ [Socket Thread] Poller 等待消息... (已处理 %d 个请求)", request_count)
+                
                 for input_socket, _ in poller.poll():
+                    logger.info("📥 [Socket Thread] 收到 ZMQ 消息！")
+                    
                     # (RequestType, RequestData)
                     type_frame, *data_frames = input_socket.recv_multipart(copy=False)
                     request_type = EngineCoreRequestType(bytes(type_frame.buffer))
+                    logger.info("   → 请求类型: %s", request_type.name)
+                    logger.info("   → 数据帧数: %d", len(data_frames))
 
                     # Deserialize the request data.
                     request: Any
                     if request_type == EngineCoreRequestType.ADD:
+                        logger.info("   → 反序列化 ADD 请求...")
                         req: EngineCoreRequest = add_request_decoder.decode(data_frames)
                         try:
                             request = self.preprocess_add_request(req)
+                            logger.info("   → 请求预处理成功: request_id=%s", req.request_id)
                         except Exception:
+                            logger.error("   ✗ 请求预处理失败: request_id=%s", req.request_id)
                             self._handle_request_preproc_error(req)
                             continue
                     else:
+                        logger.info("   → 反序列化通用请求...")
                         request = generic_decoder.decode(data_frames)
 
                         if request_type == EngineCoreRequestType.ABORT:
+                            logger.info("   → 这是一个 ABORT 请求，加入中止队列")
                             # Aborts are added to *both* queues, allows us to eagerly
                             # process aborts while also ensuring ordering in the input
                             # queue to avoid leaking requests. This is ok because
@@ -1126,7 +1283,10 @@ class EngineCoreProc(EngineCore):
                             self.aborts_queue.put_nowait(request)
 
                     # Push to input queue for core busy loop.
+                    logger.info("   → 将请求放入输入队列 (input_queue)")
                     self.input_queue.put_nowait((request_type, request))
+                    request_count += 1
+                    logger.info("✅ [Socket Thread] 请求处理完成 (总计: %d)", request_count)
 
     def process_output_sockets(
         self,
@@ -1135,6 +1295,13 @@ class EngineCoreProc(EngineCore):
         engine_index: int,
     ):
         """Output socket IO thread."""
+
+        logger.info("="*80)
+        logger.info("📤 [Output Socket Thread] 输出 Socket 线程启动")
+        logger.info("="*80)
+        logger.info("📍 输出地址列表: %s", output_paths)
+        logger.info("📍 协调器输出地址: %s", coord_output_path)
+        logger.info("🔢 引擎索引: %d", engine_index)
 
         # Msgpack serialization encoding.
         encoder = MsgpackEncoder()
@@ -1148,12 +1315,16 @@ class EngineCoreProc(EngineCore):
         # We must set linger to ensure the ENGINE_CORE_DEAD
         # message is sent prior to closing the socket.
         with ExitStack() as stack, zmq.Context() as ctx:
+            logger.info("🔧 [Output Socket Thread] 创建 ZMQ Context 和 Socket")
+            
             sockets = [
                 stack.enter_context(
                     make_zmq_socket(ctx, output_path, zmq.PUSH, linger=4000)
                 )
                 for output_path in output_paths
             ]
+            logger.info("✅ [Output Socket Thread] 创建了 %d 个输出 Socket (PUSH 类型)", len(sockets))
+            
             coord_socket = (
                 stack.enter_context(
                     make_zmq_socket(
@@ -1163,23 +1334,47 @@ class EngineCoreProc(EngineCore):
                 if coord_output_path is not None
                 else None
             )
+            if coord_socket is not None:
+                logger.info("✅ [Output Socket Thread] 创建协调器输出 Socket (PUSH 类型)")
+            else:
+                logger.info("ℹ️  [Output Socket Thread] 无协调器输出 Socket")
+            
             max_reuse_bufs = len(sockets) + 1
-
+            
+            logger.info("🚀 [Output Socket Thread] 线程就绪，等待输出...")
+            logger.info("="*80)
+            
+            output_count = 0
             while True:
+                logger.debug("⏳ [Output Socket Thread] 等待输出队列消息... (已发送 %d 个)", output_count)
+                
                 output = self.output_queue.get()
+                logger.info("📦 [Output Socket Thread] 从输出队列获取消息")
+                
                 if output == EngineCoreProc.ENGINE_CORE_DEAD:
-                    for socket in sockets:
+                    logger.warning("💀 [Output Socket Thread] 收到 ENGINE_CORE_DEAD 信号")
+                    for i, socket in enumerate(sockets):
+                        logger.info("   → 向 Socket[%d] 发送 ENGINE_CORE_DEAD", i)
                         socket.send(output)
+                    logger.info("✅ [Output Socket Thread] ENGINE_CORE_DEAD 已广播，退出")
                     break
+                    
                 assert not isinstance(output, bytes)
                 client_index, outputs = output
                 outputs.engine_index = engine_index
+                
+                logger.info("📤 [Output Socket Thread] 准备发送输出:")
+                logger.info("   → 客户端索引: %d", client_index)
+                logger.info("   → 输出类型: %s", type(outputs).__name__)
 
                 if client_index == -1:
                     # Don't reuse buffer for coordinator message
                     # which will be very small.
                     assert coord_socket is not None
+                    logger.info("   → 目标: 协调器 Socket")
                     coord_socket.send_multipart(encoder.encode(outputs))
+                    logger.info("✅ [Output Socket Thread] 已发送到协调器")
+                    output_count += 1
                     continue
 
                 # Reclaim buffers that zmq is finished with.
@@ -1188,15 +1383,27 @@ class EngineCoreProc(EngineCore):
 
                 buffer = reuse_buffers.pop() if reuse_buffers else bytearray()
                 buffers = encoder.encode_into(outputs, buffer)
+                
+                logger.info("   → 目标: 客户端 Socket[%d]", client_index)
+                logger.info("   → 编码后缓冲区数量: %d", len(buffers))
+                
                 tracker = sockets[client_index].send_multipart(
                     buffers, copy=False, track=True
                 )
+                
                 if not tracker.done:
                     ref = outputs if len(buffers) > 1 else None
                     pending.appendleft((tracker, ref, buffer))
+                    logger.debug("   → 消息发送中... (等待 ZMQ 确认)")
                 elif len(reuse_buffers) < max_reuse_bufs:
                     # Limit the number of buffers to reuse.
                     reuse_buffers.append(buffer)
+                    logger.debug("   → 消息已发送 (可复用缓冲区)")
+                else:
+                    logger.debug("   → 消息已发送")
+                
+                output_count += 1
+                logger.info("✅ [Output Socket Thread] 输出发送完成 (总计: %d)", output_count)
 
     def _handle_request_preproc_error(self, request: EngineCoreRequest) -> None:
         """Log and return a request-scoped error response for exceptions raised

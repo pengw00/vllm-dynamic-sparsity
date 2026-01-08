@@ -126,6 +126,9 @@ class LLMEngine:
             logger.info("Tracer initialized.")
 
         logger.info("Creating EngineCoreClient...")
+        logger.info("   → multiprocess_mode: %s", multiprocess_mode)
+        logger.info("   → asyncio_mode: %s", False)
+        
         # EngineCore (gets EngineCoreRequests and gives EngineCoreOutputs)
         self.engine_core = EngineCoreClient.make_client(
             multiprocess_mode=multiprocess_mode,
@@ -134,7 +137,11 @@ class LLMEngine:
             executor_class=executor_class,
             log_stats=self.log_stats,
         )
+        
         logger.info("EngineCoreClient created successfully.")
+        logger.info("   → engine_core 类型: %s", type(self.engine_core).__name__)
+        logger.info("   → 如果是 SyncMPClient, 说明使用多进程模式")
+        logger.info("   → 如果是 InProcClient, 说明使用进程内模式")
 
         self.logger_manager: StatLoggerManager | None = None
         if self.log_stats:
@@ -333,6 +340,23 @@ class LLMEngine:
         logger.info("   → engine_core 类型: %s", type(self.engine_core).__name__)
         
         with record_function_or_nullcontext("llm_engine step: get_output"):
+            logger.info("="*80)
+            logger.info("🔑 关键调用: self.engine_core.get_output()")
+            logger.info("="*80)
+            logger.info("📍 调用链分析:")
+            logger.info("   1️⃣  LLMEngine.step()")
+            logger.info("   2️⃣  → engine_core.get_output()  ← 当前位置")
+            logger.info("   3️⃣  → EngineCoreClient.get_output()")
+            logger.info("   4️⃣  → [ZMQ] 通过 socket 发送到后台进程")
+            logger.info("   5️⃣  → EngineCoreProc.run_busy_loop()")
+            logger.info("   6️⃣  → EngineCoreProc._process_engine_step()")
+            logger.info("   7️⃣  → EngineCore.step()")
+            logger.info("   8️⃣  → model_executor.execute_model()")
+            logger.info("   9️⃣  → GPUExecutor.execute_model()")
+            logger.info("   🔟 → GPUModelRunner.execute_model()")
+            logger.info("   1️⃣1️⃣ → self.model(...) - Qwen2ForCausalLM.forward()")
+            logger.info("   1️⃣2️⃣ → Qwen2Model.forward() ← 你加日志的地方")
+            logger.info("="*80)
             outputs = self.engine_core.get_output()
         
         logger.info("✅ [Step 1] 获取到 outputs, 类型: %s", type(outputs).__name__)

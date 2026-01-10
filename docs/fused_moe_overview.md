@@ -52,6 +52,7 @@ This document explains what `vllm/model_executor/layers/fused_moe/fused_moe.py` 
 - Triton kernels: `fused_moe_kernel`, `fused_moe_kernel_gptq_awq`, helper `write_zeros_to_output`.
 
 ## Execution Flow (High Level)
+![fused-mode2](fused-moe2.png)
 
 ```mermaid
 flowchart LR

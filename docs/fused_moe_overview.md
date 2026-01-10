@@ -56,10 +56,10 @@ This document explains what `vllm/model_executor/layers/fused_moe/fused_moe.py` 
 
 ```mermaid
 flowchart LR
-  A[Router logits from gate] --> B[fused_topk() / grouped_topk()]
+  A[Router logits from gate] --> B[fused_topk / grouped_topk]
   B --> C[top-k expert ids + weights]
-  C --> D[fused_experts()]
-  D --> E[invoke_fused_moe_kernel()]
+  C --> D[fused_experts]
+  D --> E[invoke_fused_moe_kernel]
   E --> F[Projection 1: hidden_states @ W1]
   F --> G[Activation: SiLU/GELU/SwigluOAI]
   G --> H[Projection 2: cache @ W2]

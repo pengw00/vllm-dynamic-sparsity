@@ -13,32 +13,7 @@ This document explains what `vllm/model_executor/layers/fused_moe/fused_moe.py` 
 
 ## Upstream and Downstream
 
-```mermaid
-flowchart TD
-  subgraph Models [Model Layer]
-    M1[DeepseekV2 / Mixtral / DBRX / ...]
-  end
-
-  M1 --> LAYER[Layer: layer.py / FusedMoE]
-  LAYER --> FM[fused_moe.py]
-
-  subgraph Backends [Kernel Backends]
-    TRITON[Triton kernels (this file)]
-    CUTLASS[cutlass_moe.py]
-    DEEPGEMM[deep_gemm_moe.py]
-    ROCM[rocm_aiter_fused_moe.py]
-  end
-
-  FM --> TRITON
-  FM --> CUTLASS
-  FM --> DEEPGEMM
-  FM --> ROCM
-
-  TRITON --> GPU[GPU]
-  CUTLASS --> GPU
-  DEEPGEMM --> GPU
-  ROCM --> GPU
-```
+![fused-mode](fused-moe.png)
 
 ```
 [Models]  DeepseekV2/Mixtral/DBRX/... (call FusedMoE layer)
